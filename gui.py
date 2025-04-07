@@ -46,6 +46,11 @@ class DeviceGUI:
         self.temperature_var = StringVar(value="--- °C")
         self.position_var = IntVar(value=0)
         self.position_text_var = StringVar(value="Позиция: 0")
+        self.resive_new_pressure_data = False
+        self.resive_new_temperature_data = False
+        self.resive_new_position_data = False
+        self.resive_new_status_data = False
+        self.last_time_log = time.time()
 
     def _init_graphs(self):
         """Инициализация графиков с раздельными массивами данных"""
@@ -98,6 +103,7 @@ class DeviceGUI:
         """Обновляет статусные флаги"""
         while not self.controller.status_queue.empty():
             address, value = self.controller.status_queue.get()
+            self.resive_new_status_data = True
             if address == REG_STATUS:
                 for i, (name, var) in enumerate(self.status_vars.items()):
                     var.set(bool(value & (1 << i)))
@@ -106,6 +112,7 @@ class DeviceGUI:
         """Обновляет позицию заслонки"""
         while not self.controller.position_queue.empty():
             address, value = self.controller.position_queue.get()
+            self.resive_new_position_data = True
             if address == REG_POSITION:
                 self.position_var.set(value)
                 self.position_text_var.set(f"Позиция: {value}")
@@ -153,6 +160,7 @@ class DeviceGUI:
         """Обновляет показания температуры и график"""
         while not self.controller.temperature_queue.empty():
             address, value = self.controller.temperature_queue.get()
+            self.resive_new_temperature_data = True
             if address == REG_TEMPERATURE:
                 temp_c = value / 10.0
                 current_time = time.time()
@@ -165,12 +173,13 @@ class DeviceGUI:
                 self.temperature_var.set(f"{temp_c:.1f} °C")
 
                 # Обновляем графики
-                self._update_graphs()
+                #self._update_graphs()
 
     def _update_pressure(self):
         """Обновляет показания давления и график"""
         while not self.controller.measured_pressure_queue.empty():
             address, value = self.controller.measured_pressure_queue.get()
+            self.resive_new_pressure_data = True
             if address == REG_MEASURED_PRESSURE:
                 pressure = value / 10.0
                 current_time = time.time()
@@ -183,7 +192,7 @@ class DeviceGUI:
                 self.measured_pressure_var.set(f"{pressure:.1f} Pa")
 
                 # Обновляем графики
-                self._update_graphs()
+                #self._update_graphs()
 
         while not self.controller.set_pressure_queue.empty():
             address, value = self.controller.set_pressure_queue.get()
@@ -265,7 +274,7 @@ class DeviceGUI:
     def _start_background_tasks(self):
         """Запускает фоновые задачи"""
         self._update_data()
-        self._check_connection()
+        #self._check_connection()
         self._log_data()
 
         if self.window.winfo_exists():
@@ -322,32 +331,48 @@ class DeviceGUI:
             return
 
         self.controller.write_register(REG_COMMAND, CMD_OPEN)
-        while not (self.controller.read_register(REG_STATUS) & 0x02):
+        star_time = time.time()
+        open = False
+        while (not open and not (star_time - time.time() > 5)):
+            try:
+                open = (self.controller.read_register(REG_STATUS) & 0x02)
+            except Exception as e:
+                print(f"Ошибка при чтении стуса: {e}")
+
             time.sleep(1)
 
         self.controller.write_register(REG_COMMAND, CMD_MIDDLE_POSITION)
 
     def _log_data(self):
         """Логирование данных через модуль DataLogger"""
-        try:
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if (self.resive_new_pressure_data & self.resive_new_status_data & \
+            self.resive_new_position_data & self.resive_new_status_data):
+            print("log")
+            try:
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            # Получаем текущие значения
-            temp = self.temperature_var.get().replace(" °C", "") if self.temperature_var.get() != "---" else None
-            pressure = self.measured_pressure_var.get().replace(" Pa",
-                                                                "") if self.measured_pressure_var.get() != "---" else None
-            position = self.position_var.get()
+                # Получаем текущие значения
+                temp = self.temperature_var.get().replace(" °C", "") if self.temperature_var.get() != "---" else None
+                pressure = self.measured_pressure_var.get().replace(" Pa",
+                                                                    "") if self.measured_pressure_var.get() != "---" else None
+                position = self.position_var.get()
 
-            # Получаем статус в виде битовой маски
-            status = 0
-            for i, (name, var) in enumerate(self.status_vars.items()):
-                status |= int(var.get()) << i
+                # Получаем статус в виде битовой маски
+                status = 0
+                for i, (name, var) in enumerate(self.status_vars.items()):
+                    status |= int(var.get()) << i
 
-            # Передаем данные логгеру
-            self.logger.add_data(current_time, temp, pressure, position, status)
+                # Передаем данные логгеру
+                self.logger.add_data(current_time, temp, pressure, position, status)
 
-        except Exception as e:
-            print(f"Ошибка при логировании данных: {e}")
+            except Exception as e:
+                print(f"Ошибка при логировании данных: {e}")
+        else:
+            if time.time() - self.last_time_log > 0.5:
+                self.resive_new_pressure_data = False
+                self.resive_new_status_data = False
+                self.resive_new_position_data = False
+                self.resive_new_status_data = False
 
     def on_close(self):
         """Обработчик закрытия окна"""
