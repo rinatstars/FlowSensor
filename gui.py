@@ -45,7 +45,13 @@ class DeviceGUI:
             'STAB': BooleanVar(),
             'OPEN': BooleanVar(),
             'CLOSE': BooleanVar(),
-            'ERROR': BooleanVar()
+            'POSITION': BooleanVar(),
+            'KEY STAB': BooleanVar(),
+            'KEY OPEN': BooleanVar(),
+            'KEY CLOSE': BooleanVar(),
+            'ERROR': BooleanVar(),
+            'RESET': BooleanVar(),
+            'PING': BooleanVar(),
         }
         self.measured_pressure_var = StringVar(value="--- Pa")
         self.set_pressure_var = StringVar(value="0")
@@ -267,9 +273,17 @@ class DeviceGUI:
         frame = ttk.LabelFrame(parent, text="Статус", padding="5")
         frame.pack(fill='x', pady=5)
 
+        n = 0
         for name, var in self.status_vars.items():
-            cb = ttk.Checkbutton(frame, text=name, variable=var, state='disabled')
-            cb.pack(anchor='w')
+            if n < 5:
+                cb = ttk.Checkbutton(frame, text=name, variable=var, state='disabled')
+                cb.grid(row=n, column=0, padx=5, sticky='w')
+                n += 1
+            else:
+                cb = ttk.Checkbutton(frame, text=name, variable=var, state='disabled')
+                cb.grid(row=n-5, column=1, padx=5, sticky='w')
+                n += 1
+
 
     def _create_temperature_frame(self, parent):
         """Создает фрейм температуры"""
