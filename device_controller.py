@@ -197,9 +197,9 @@ class DeviceController:
         # Конфигурация потоков опроса
         polling_config = [
             (REG_STATUS, self.status_queue, 0.1),  # Статус
-            (REG_MEASURED_PRESSURE, self.measured_pressure_queue, 0.5),  # Давление
-            (REG_TEMPERATURE, self.temperature_queue, 0.5),  # Температура
-            (REG_POSITION, self.position_queue, 1.0),  # Позиция
+            (REG_MEASURED_PRESSURE, self.measured_pressure_queue, 0.1),  # Давление
+            (REG_TEMPERATURE, self.temperature_queue, 0.1),  # Температура
+            (REG_POSITION, self.position_queue, 0.1),  # Позиция
             (REG_SET_PRESSURE, self.set_pressure_queue, 2.0)  # Уставка давления
         ]
 
