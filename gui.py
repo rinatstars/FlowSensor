@@ -57,7 +57,9 @@ class DeviceGUI:
         self.set_pressure_var = StringVar(value="0")
         self.temperature_var = StringVar(value="--- °C")
         self.position_var = IntVar(value=0)
-        self.position_text_var = StringVar(value="Позиция: 0")
+        self.position_var_set = IntVar(value=0)
+        self.position_text_var = StringVar(value="Позиция изм.: 0")
+        self.position_text_var_set = StringVar(value="Позиция уст.: 0")
         self.receive_new_temperature_data = False
         self.receive_new_pressure_data = False
         self.receive_new_position_data = False
@@ -162,7 +164,51 @@ class DeviceGUI:
             address, value = self.controller.position_queue.get()
             if address == REG_POSITION:
                 self.position_var.set(value)
-                self.position_text_var.set(f"Позиция: {value}")
+                self.position_text_var.set(f"Позиция изм.: {value}")
+
+    def _update_temperature(self):
+        """Обновляет показания температуры"""
+        max_updates = 10  # Ограничиваем количество обновлений за один вызов
+        updates = 0
+
+        while not self.controller.temperature_queue.empty() and updates < max_updates:
+            try:
+                address, value = self.controller.temperature_queue.get_nowait()
+                if address == REG_TEMPERATURE:
+                    temp_c = value / 10.0
+                    self.temp_data['value'].append(temp_c)
+                    self.temperature_var.set(f"{temp_c:.1f} °C")
+                    self.receive_new_temperature_data = True
+                    updates += 1
+            except:
+                break
+
+    def _update_pressure(self):
+        """Обновляет показания давления"""
+        max_updates = 10
+        updates = 0
+
+        while not self.controller.measured_pressure_queue.empty() and updates < max_updates:
+            try:
+                address, value = self.controller.measured_pressure_queue.get_nowait()
+                if address == REG_MEASURED_PRESSURE:
+                    pressure = value / 10.0
+                    self.pressure_data['value'].append(pressure)
+                    self.measured_pressure_var.set(f"{pressure:.1f} Pa")
+                    self.receive_new_pressure_data = True
+                    updates += 1
+            except:
+                break
+
+    def _update_data(self):
+        """Обновляет все данные из очередей"""
+        try:
+            self._update_status()
+            self._update_temperature()
+            self._update_position()
+            self._update_pressure()
+        except Exception as e:
+            print(f"Ошибка обновления интерфейса: {e}")
 
     def _update_graphs(self):
         """Оптимизированное обновление графиков"""
@@ -223,51 +269,6 @@ class DeviceGUI:
             self.receive_new_temperature_data = False
             self.receive_new_pressure_data = False
 
-
-    def _update_temperature(self):
-        """Обновляет показания температуры"""
-        max_updates = 10  # Ограничиваем количество обновлений за один вызов
-        updates = 0
-
-        while not self.controller.temperature_queue.empty() and updates < max_updates:
-            try:
-                address, value = self.controller.temperature_queue.get_nowait()
-                if address == REG_TEMPERATURE:
-                    temp_c = value / 10.0
-                    self.temp_data['value'].append(temp_c)
-                    self.temperature_var.set(f"{temp_c:.1f} °C")
-                    self.receive_new_temperature_data = True
-                    updates += 1
-            except:
-                break
-
-    def _update_pressure(self):
-        """Обновляет показания давления"""
-        max_updates = 10
-        updates = 0
-
-        while not self.controller.measured_pressure_queue.empty() and updates < max_updates:
-            try:
-                address, value = self.controller.measured_pressure_queue.get_nowait()
-                if address == REG_MEASURED_PRESSURE:
-                    pressure = value / 10.0
-                    self.pressure_data['value'].append(pressure)
-                    self.measured_pressure_var.set(f"{pressure:.1f} Pa")
-                    self.receive_new_pressure_data = True
-                    updates += 1
-            except:
-                break
-
-    def _update_data(self):
-        """Обновляет все данные из очередей"""
-        try:
-            self._update_status()
-            self._update_temperature()
-            self._update_position()
-            self._update_pressure()
-        except Exception as e:
-            print(f"Ошибка обновления интерфейса: {e}")
-
     def _create_status_frame(self, parent):
         """Создает фрейм статуса"""
         frame = ttk.LabelFrame(parent, text="Статус", padding="5")
@@ -295,9 +296,14 @@ class DeviceGUI:
         """Создает фрейм позиции"""
         frame = ttk.LabelFrame(parent, text="Позиция заслонки", padding="5")
         frame.pack(fill='x', pady=5)
-        ttk.Label(frame, textvariable=self.position_text_var).pack()
-        ttk.Scale(frame, variable=self.position_var, from_=0, to=4095, length=300).pack()
-        ttk.Button(frame, text="Применить", command=self._set_position).pack(pady=5)
+        ttk.Label(frame, textvariable=self.position_text_var).grid(row=0, column=0, padx=5, sticky='w')
+        ttk.Label(frame, textvariable=self.position_text_var_set).grid(row=0, column=1, padx=5, sticky='w')
+        ttk.Scale(frame, variable=self.position_var_set, from_=0, to=4095, length=300, command=self._set_position_var).grid(
+            row=1, column=0, columnspan=2, padx=5, sticky='w'
+        )
+        ttk.Button(frame, text="Применить", command=self._set_position).grid(
+            row=2, column=0, columnspan=2, padx=5, sticky='n'
+        )
 
     def _create_pressure_frame(self, parent):
         """Создает фрейм давления"""
@@ -398,9 +404,14 @@ class DeviceGUI:
 
     def _set_position(self):
         """Устанавливает позицию заслонки"""
-        value = self.position_var.get()
+        value = self.position_var_set.get()
         if self.controller.write_register(REG_SET_POSITION, value):
             print(f"Позиция установлена: {value}")
+
+    def _set_position_var(self, value):
+        """Меняет значение переменной с текстом установленного положения заслонки"""
+        value = self.position_var_set.get()
+        self.position_text_var_set.set(f"Позиция уст.: {value}")
 
     def _set_middle_position(self):
         """Устанавливает среднее положение заслонки без блокировки главного цикла"""
