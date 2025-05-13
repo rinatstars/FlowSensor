@@ -1,0 +1,7 @@
+{
+  "ip": "10.11.13.241",
+  "port": 502,
+  "device_id": 3,
+  "max_attempts": 5,
+  "poll_interval_sec": 2
+}

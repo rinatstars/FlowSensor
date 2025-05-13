@@ -11,7 +11,7 @@ from collections import deque
 from logger import DataLogger  # Добавляем импорт
 from constants import (
     REG_STATUS, REG_TEMPERATURE, REG_MEASURED_PRESSURE,
-    REG_POSITION, REG_COMMAND, REG_SET_PRESSURE, REG_SET_POSITION,
+    REG_POSITION_LO, REG_POSITION_HI, REG_COMMAND, REG_SET_PRESSURE, REG_SET_POSITION,
     CMD_START, CMD_STOP, CMD_SAVE_FLASH, CMD_OPEN, CMD_CLOSE, CMD_MIDDLE_POSITION
 )
 
@@ -65,6 +65,9 @@ class DeviceGUI:
         self.receive_new_position_data = False
         self.receive_new_status_data = False
         self.last_log_time = time.time()
+        self.calc_speed = False
+        self.text_press = "Давление"
+        self.log_enable = BooleanVar(value=False)
 
     def _init_graphs(self, frame):
         # Данные для графиков
@@ -125,6 +128,7 @@ class DeviceGUI:
         self._create_position_frame(left_frame)
         self._create_pressure_frame(left_frame)
         self._create_command_frame(left_frame)
+        self._create_log_frame(left_frame)
 
         # Графики
         self._create_graphs_frame(right_frame)
@@ -159,12 +163,24 @@ class DeviceGUI:
                     var.set(bool(value & (1 << i)))
 
     def _update_position(self):
-        """Обновляет позицию заслонки"""
+        """Обновляет позицию заслонки (32-битное значение)"""
+        position_lo = None
+        position_hi = None
+
         while not self.controller.position_queue.empty():
             address, value = self.controller.position_queue.get()
-            if address == REG_POSITION:
-                self.position_var.set(value)
-                self.position_text_var.set(f"Позиция изм.: {value}")
+            if address == REG_POSITION_LO:
+                position_lo = value
+                print(f'pos_lo: {position_lo}')
+            elif address == REG_POSITION_HI:
+                position_hi = value
+                print(f'pos_hi: {position_hi}')
+
+        if position_lo is not None and position_hi is not None:
+            position = (position_hi << 16) | position_lo
+            self.position_var.set(position)
+            self.position_text_var.set(f"Позиция изм.: {position}")
+            print(f'pos_lo: {position_lo}, pos_hi: {position_hi}, pos: {position}')
 
     def _update_temperature(self):
         """Обновляет показания температуры"""
@@ -298,16 +314,22 @@ class DeviceGUI:
         frame.pack(fill='x', pady=5)
         ttk.Label(frame, textvariable=self.position_text_var).grid(row=0, column=0, padx=5, sticky='w')
         ttk.Label(frame, textvariable=self.position_text_var_set).grid(row=0, column=1, padx=5, sticky='w')
-        ttk.Scale(frame, variable=self.position_var_set, from_=0, to=4095, length=300, command=self._set_position_var).grid(
+        ttk.Scale(frame, variable=self.position_var_set, from_=0, to=4294967295, length=300, command=self._set_position_var).grid(
             row=1, column=0, columnspan=2, padx=5, sticky='w'
         )
         ttk.Button(frame, text="Применить", command=self._set_position).grid(
             row=2, column=0, columnspan=2, padx=5, sticky='n'
         )
 
+    def _change_speed_press(self):
+        if self.calc_speed:
+            self.text_press = "Скорость"
+        else:
+            self.text_press = "Давление"
+
     def _create_pressure_frame(self, parent):
         """Создает фрейм давления"""
-        frame = ttk.LabelFrame(parent, text="Давление", padding="5")
+        frame = ttk.LabelFrame(parent, text=self.text_press, padding="5")
         frame.pack(fill='x', pady=5)
 
         ttk.Label(frame, text="Измеренное:").grid(row=0, column=0, padx=5, sticky='w')
@@ -320,6 +342,9 @@ class DeviceGUI:
         self.pressure_spinbox.grid(row=1, column=1, padx=5)
         ttk.Button(frame, text="Прочитать", command=self._read_pressure).grid(row=1, column=2, padx=5)
         ttk.Button(frame, text="Применить", command=self._set_pressure).grid(row=1, column=3, padx=5)
+
+        cb = ttk.Checkbutton(frame, text="Скорость", variable=self.calc_speed, command=self._change_speed_press)
+        cb.grid(row=2, column=0, padx=5, sticky='w')
 
     def _create_command_frame(self, parent):
         """Создает фрейм команд"""
@@ -343,6 +368,24 @@ class DeviceGUI:
         for i in range(3):
             frame.grid_columnconfigure(i, weight=1)
 
+    def _create_log_frame(self, parent):
+        """Создает фрейм управления логом"""
+        frame = ttk.LabelFrame(parent, text="Лог", padding="5")
+        frame.pack(fill='x', pady=10)
+
+        ttk.Button(frame, text="СТАРТ", command=lambda: self._start_log(True)).grid(
+            row=0, column=0, padx=5, pady=2)
+        ttk.Button(frame, text="СТОП", command=lambda: self._start_log(False)).grid(
+            row=0, column=1, padx=5, pady=2)
+        ttk.Button(frame, text="20 изм", command=lambda: self._rec_to_log(20)).grid(
+            row=0, column=2, padx=5, pady=2)
+
+        cb = ttk.Checkbutton(frame, text="Запущен", variable=self.log_enable, state='disabled')
+        cb.grid(row=1, column=0, padx=5, sticky='w')
+
+        for i in range(3):
+            frame.grid_columnconfigure(i, weight=1)
+
     def _start_background_tasks(self):
         """Оптимизированный планировщик задач"""
         start_time = time.time()
@@ -355,7 +398,7 @@ class DeviceGUI:
             self._update_graphs()
 
         # Логируем данные (реже)
-        if time.time() - self.last_log_time >= 1.0:  # Раз в секунду
+        if time.time() - self.last_log_time >= 0.5 and self.log_enable.get():  # Раз в секунду
             self._log_data()
             self.last_log_time = time.time()
 
@@ -364,7 +407,7 @@ class DeviceGUI:
         next_interval = max(100, int(processing_time * 1000 * 1.1))  # +10% к времени обработки
 
         if self.window.winfo_exists():
-            self.window.after(next_interval, self._start_background_tasks)
+            self.window.after(100, self._start_background_tasks)
 
     def _check_connection(self):
         """Проверяет соединение с устройством"""
@@ -451,6 +494,45 @@ class DeviceGUI:
 
         except Exception as e:
             print(f"Ошибка при логировании данных: {e}")
+
+    def _start_log(self, is_on):
+        self.log_enable.set(is_on)
+
+    def _rec_to_log(self, n):
+        """Выполняет n измерений и сохраняет их в лог"""
+        start_measurement_time = time.time()
+        measurements = []
+        while len(measurements) < n and time.time() - start_measurement_time < 60:
+            # Получаем текущие значения
+            temp = self.controller.read_register(REG_TEMPERATURE)
+            pressure = self.controller.read_register(REG_MEASURED_PRESSURE)
+            position = self.controller.read_register(REG_POSITION)
+            status = self.controller.read_register(REG_STATUS)
+
+            if None in (temp, pressure, position, status):
+                continue  # Пропускаем если нет данных
+
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            measurements.append([
+                current_time,
+                temp / 10.0,  # Температура
+                pressure / 10.0,  # Давление
+                position,  # Позиция
+                status  # Статус
+            ])
+
+            time.sleep(0.2)  # Интервал между измерениями
+
+        # Сохраняем все измерения одним пакетом
+        if measurements:
+            try:
+                for measurement in measurements:
+                    self.logger.add_data(*measurement)
+                self.logger.flush()  # Принудительно сохраняем
+                print(f"Успешно сохранено {len(measurements)} измерений")
+            except Exception as e:
+                print(f"Ошибка при сохранении измерений: {e}")
 
     def on_close(self):
         """Обработчик закрытия окна"""

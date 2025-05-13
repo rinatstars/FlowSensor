@@ -9,7 +9,7 @@ from queue import Queue
 from constants import (
     DEFAULT_PORT, DEFAULT_DEVICE_ID, RECONNECT_ATTEMPTS, RECONNECT_DELAY,
     READ_TIMEOUT, WRITE_TIMEOUT, REG_STATUS, REG_MEASURED_PRESSURE,
-    REG_TEMPERATURE, REG_POSITION, REG_COMMAND, REG_SET_PRESSURE, REG_SET_POSITION,
+    REG_TEMPERATURE, REG_POSITION_LO, REG_POSITION_HI, REG_COMMAND, REG_SET_PRESSURE, REG_SET_POSITION,
     CMD_START, CMD_OPEN, CMD_CLOSE, CMD_STOP, CMD_SAVE_FLASH, CMD_MIDDLE_POSITION
 )
 from crc import crc7_generate
@@ -199,7 +199,8 @@ class DeviceController:
             (REG_STATUS, self.status_queue, 0.1),  # Статус
             (REG_MEASURED_PRESSURE, self.measured_pressure_queue, 0.1),  # Давление
             (REG_TEMPERATURE, self.temperature_queue, 0.1),  # Температура
-            (REG_POSITION, self.position_queue, 0.1),  # Позиция
+            (REG_POSITION_LO, self.position_queue, 0.1),     # Позиция
+            (REG_POSITION_HI, self.position_queue, 0.1),  # Позиция
             (REG_SET_PRESSURE, self.set_pressure_queue, 2.0)  # Уставка давления
         ]
 
