@@ -2,10 +2,8 @@
 """Модуль для логирования данных в Excel"""
 
 import pandas as pd
-from openpyxl import load_workbook
 from pathlib import Path
 import logging
-from datetime import datetime
 import time
 import os
 

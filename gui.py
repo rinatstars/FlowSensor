@@ -2,9 +2,11 @@
 
 import time
 import matplotlib
+matplotlib.use('Agg')
 from datetime import datetime
 from tkinter import Tk, BooleanVar, StringVar, IntVar, Frame
 from tkinter import ttk
+from tkinter import scrolledtext
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from collections import deque
@@ -24,6 +26,7 @@ class DeviceGUI:
     """Класс графического интерфейса для управления устройством"""
 
     def __init__(self, controller):
+        self.start_time = time.time()
         self.controller = controller
         self.window = Tk()
         self._setup_window()
@@ -110,17 +113,24 @@ class DeviceGUI:
         # Основной контейнер с использованием grid для корректного распределения областей
         main_container = ttk.Frame(self.window, padding="10")
         main_container.pack(fill='both', expand=True)
+
+        # Настройка колонок: [0] — левая, [1] — графики, [2] — журнал команд
         main_container.columnconfigure(0, weight=0)
         main_container.columnconfigure(1, weight=1)
+        #main_container.columnconfigure(2, weight=0)  # вывод команд — фиксированный размер
         main_container.rowconfigure(0, weight=1)
 
         # Левая колонка (управление)
         left_frame = ttk.Frame(main_container)
         left_frame.grid(row=0, column=0, sticky='nsw', padx=(0, 10))
 
-        # Правая колонка (графики)
+        # Центральная колонка (графики)
         right_frame = ttk.Frame(main_container)
         right_frame.grid(row=0, column=1, sticky='nsew')
+
+        # Правая колонка (вывод команд)
+        output_frame = ttk.Frame(main_container)
+        output_frame.grid(row=0, column=2, sticky='nse', padx=(10, 0))
 
         # Элементы управления
         self._create_status_frame(left_frame)
@@ -132,6 +142,11 @@ class DeviceGUI:
 
         # Графики
         self._create_graphs_frame(right_frame)
+
+        # # Элемент вывода команд (правая колонка)
+        # self.command_output = scrolledtext.ScrolledText(output_frame, width=40, height=30, state='disabled',
+        #                                                 wrap='word')
+        # self.command_output.pack(fill='both', expand=True)
 
     def _create_graphs_frame(self, parent):
         """Создает фрейм с графиками"""
@@ -167,14 +182,13 @@ class DeviceGUI:
         position_lo = None
         position_hi = None
 
-        while not self.controller.position_queue.empty():
-            address, value = self.controller.position_queue.get()
-            if address == REG_POSITION_LO:
-                position_lo = value
-                print(f'pos_lo: {position_lo}')
-            elif address == REG_POSITION_HI:
-                position_hi = value
-                print(f'pos_hi: {position_hi}')
+        while not self.controller.position_queue_LO.empty() and not self.controller.position_queue_HI.empty():
+            address, value = self.controller.position_queue_LO.get()
+            position_lo = value
+            print(f'pos_lo: {position_lo}')
+            address, value = self.controller.position_queue_HI.get()
+            position_hi = value
+            print(f'pos_hi: {position_hi}')
 
         if position_lo is not None and position_hi is not None:
             position = (position_hi << 16) | position_lo
@@ -215,6 +229,7 @@ class DeviceGUI:
                     updates += 1
             except:
                 break
+
 
     def _update_data(self):
         """Обновляет все данные из очередей"""
@@ -390,6 +405,8 @@ class DeviceGUI:
         """Оптимизированный планировщик задач"""
         start_time = time.time()
 
+        #self.controller.start_polling(one_poll=True)
+
         # Обновляем данные
         self._update_data()
 
@@ -404,10 +421,10 @@ class DeviceGUI:
 
         # Динамически регулируем интервал
         processing_time = time.time() - start_time
-        next_interval = max(100, int(processing_time * 1000 * 1.1))  # +10% к времени обработки
+        next_interval = max(2, int(processing_time * 1000 * 1.1))  # +10% к времени обработки
 
         if self.window.winfo_exists():
-            self.window.after(100, self._start_background_tasks)
+            self.window.after(next_interval, self._start_background_tasks)
 
     def _check_connection(self):
         """Проверяет соединение с устройством"""
@@ -423,19 +440,19 @@ class DeviceGUI:
         """Устанавливает давление"""
         try:
             value = int(float(self.set_pressure_var.get()) * 10)
-            status = self.controller.read_register(REG_STATUS)
-            if status is None:
-                return
+            # status = self.controller.read_register(REG_STATUS)
+            # if status is None:
+            #     return
 
-            was_stab = status & 0x01
-            if was_stab:
-                self.controller.write_register(REG_COMMAND, CMD_STOP)
+            # was_stab = False #status & 0x01
+            # if was_stab:
+            #     self.controller.write_register(REG_COMMAND, CMD_STOP)
 
             if self.controller.write_register(REG_SET_PRESSURE, value):
                 print(f"Давление установлено: {value / 10} Pa")
 
-            if was_stab:
-                self.controller.write_register(REG_COMMAND, CMD_START)
+            # if was_stab:
+            #     self.controller.write_register(REG_COMMAND, CMD_START)
         except ValueError:
             print("Ошибка: введите число")
 
@@ -502,11 +519,19 @@ class DeviceGUI:
         """Выполняет n измерений и сохраняет их в лог"""
         start_measurement_time = time.time()
         measurements = []
+
         while len(measurements) < n and time.time() - start_measurement_time < 60:
             # Получаем текущие значения
             temp = self.controller.read_register(REG_TEMPERATURE)
             pressure = self.controller.read_register(REG_MEASURED_PRESSURE)
-            position = self.controller.read_register(REG_POSITION)
+            address, value = self.controller.position_queue.get()
+            if address == REG_POSITION_LO:
+                position_lo = value
+                print(f'pos_lo: {position_lo}')
+            elif address == REG_POSITION_HI:
+                position_hi = value
+                print(f'pos_hi: {position_hi}')
+            position = (position_hi << 16) | position_lo
             status = self.controller.read_register(REG_STATUS)
 
             if None in (temp, pressure, position, status):
