@@ -189,7 +189,6 @@ class DeviceController:
                 try:
                     for addr, queue in polling_config:
                         value = self.read_register(addr)
-                        print(f"read {addr} = {value} | qsize = {queue.qsize()}")
                         if queue.full():
                             queue.get()
                         if value is not None:
@@ -202,11 +201,8 @@ class DeviceController:
                 poll()
                 return
 
-            print("Polling thread started")
             while self.running:
-                print("thread_run")
                 poll()
-                print(f"self.running after while - {self.running}")
 
         if one_poll:
             polling_loop(one_poll=True)

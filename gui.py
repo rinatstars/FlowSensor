@@ -2,7 +2,6 @@
 
 import time
 import matplotlib
-matplotlib.use('Agg')
 from datetime import datetime
 from tkinter import Tk, BooleanVar, StringVar, IntVar, Frame
 from tkinter import ttk
@@ -39,7 +38,7 @@ class DeviceGUI:
     def _setup_window(self):
         """Настройка основного окна"""
         self.window.title("Управление устройством")
-        self.window.geometry("900x650")
+        self.window.geometry("1200x700")
         self.window.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def _init_variables(self):
@@ -111,13 +110,13 @@ class DeviceGUI:
     def _setup_ui(self):
         """Создание элементов интерфейса"""
         # Основной контейнер с использованием grid для корректного распределения областей
-        main_container = ttk.Frame(self.window, padding="10")
+        main_container = ttk.Frame(self.window, padding="30")
         main_container.pack(fill='both', expand=True)
 
         # Настройка колонок: [0] — левая, [1] — графики, [2] — журнал команд
         main_container.columnconfigure(0, weight=0)
         main_container.columnconfigure(1, weight=1)
-        #main_container.columnconfigure(2, weight=0)  # вывод команд — фиксированный размер
+        main_container.columnconfigure(2, weight=0)  # вывод команд — фиксированный размер
         main_container.rowconfigure(0, weight=1)
 
         # Левая колонка (управление)
@@ -143,10 +142,10 @@ class DeviceGUI:
         # Графики
         self._create_graphs_frame(right_frame)
 
-        # # Элемент вывода команд (правая колонка)
-        # self.command_output = scrolledtext.ScrolledText(output_frame, width=40, height=30, state='disabled',
-        #                                                 wrap='word')
-        # self.command_output.pack(fill='both', expand=True)
+        # Элемент вывода команд (правая колонка)
+        self.command_output = scrolledtext.ScrolledText(output_frame, width=40, height=30, state='disabled',
+                                                        wrap='word')
+        self.command_output.pack(fill='both', expand=True)
 
     def _create_graphs_frame(self, parent):
         """Создает фрейм с графиками"""
@@ -185,16 +184,14 @@ class DeviceGUI:
         while not self.controller.position_queue_LO.empty() and not self.controller.position_queue_HI.empty():
             address, value = self.controller.position_queue_LO.get()
             position_lo = value
-            print(f'pos_lo: {position_lo}')
             address, value = self.controller.position_queue_HI.get()
             position_hi = value
-            print(f'pos_hi: {position_hi}')
 
         if position_lo is not None and position_hi is not None:
             position = (position_hi << 16) | position_lo
             self.position_var.set(position)
             self.position_text_var.set(f"Позиция изм.: {position}")
-            print(f'pos_lo: {position_lo}, pos_hi: {position_hi}, pos: {position}')
+            #print(f'pos_lo: {position_lo}, pos_hi: {position_hi}, pos: {position}')
 
     def _update_temperature(self):
         """Обновляет показания температуры"""
@@ -239,7 +236,7 @@ class DeviceGUI:
             self._update_position()
             self._update_pressure()
         except Exception as e:
-            print(f"Ошибка обновления интерфейса: {e}")
+            self.append_command_log(f"Ошибка обновления интерфейса: {e}")
 
     def _update_graphs(self):
         """Оптимизированное обновление графиков"""
@@ -293,7 +290,7 @@ class DeviceGUI:
             self.canvas.blit(self.ax2.bbox)
 
         except Exception as e:
-            print(f"Ошибка обновления графиков: {e}")
+            self.append_command_log(f"Ошибка обновления графиков: {e}")
             # При ошибке перерисовываем полностью
             self.canvas.draw()
         finally:
@@ -429,11 +426,13 @@ class DeviceGUI:
     def _check_connection(self):
         """Проверяет соединение с устройством"""
         if not self.controller._ensure_connection():
+            self.append_command_log("Предупреждение: проблемы с соединением")
             print("Предупреждение: проблемы с соединением")
 
     def _send_command(self, register, value):
         """Отправляет команду устройству"""
         if self.controller.write_register(register, value):
+            self.append_command_log(f"Команда отправлена: регистр 0x{register:02X}, значение 0x{value:04X}")
             print(f"Команда отправлена: регистр 0x{register:02X}, значение 0x{value:04X}")
 
     def _set_pressure(self):
@@ -449,24 +448,31 @@ class DeviceGUI:
             #     self.controller.write_register(REG_COMMAND, CMD_STOP)
 
             if self.controller.write_register(REG_SET_PRESSURE, value):
-                print(f"Давление установлено: {value / 10} Pa")
+                self.append_command_log(f"Команда отправлена: регистр 0x{REG_SET_PRESSURE:02X}, значение 0x{value:04X}")
+                self.append_command_log(f"Давление установлено: {value / 10} Pa")
 
             # if was_stab:
             #     self.controller.write_register(REG_COMMAND, CMD_START)
         except ValueError:
-            print("Ошибка: введите число")
+            self.append_command_log("Ошибка: введите число")
 
     def _read_pressure(self):
         """Читает текущее значение уставки давления"""
         value = self.controller.read_register(REG_SET_PRESSURE)
         if value is not None:
             self.set_pressure_var.set(str(value / 10))
+            self.append_command_log(f"Команда отправлена: регистр 0x{REG_SET_PRESSURE:02X}, ответ 0x{value:04X}")
+        else:
+            self.append_command_log(f"Команда отправлена: регистр 0x{REG_SET_PRESSURE:02X}, ответа НЕТ")
 
     def _set_position(self):
         """Устанавливает позицию заслонки"""
         value = self.position_var_set.get()
         if self.controller.write_register(REG_SET_POSITION, value):
-            print(f"Позиция установлена: {value}")
+            self.append_command_log(f"Позиция установлена: {value}")
+            self.append_command_log(f"Команда отправлена: регистр 0x{REG_SET_POSITION:02X}, ответ 0x{value:04X}")
+        else:
+            self.append_command_log(f"Команда отправлена: регистр 0x{REG_SET_POSITION:02X}, ответа НЕТ")
 
     def _set_position_var(self, value):
         """Меняет значение переменной с текстом установленного положения заслонки"""
@@ -475,10 +481,13 @@ class DeviceGUI:
 
     def _set_middle_position(self):
         """Устанавливает среднее положение заслонки без блокировки главного цикла"""
-        if self.controller.read_register(REG_STATUS) is None:
+        value = self.controller.read_register(REG_STATUS)
+        if value is None:
+            self.append_command_log(f"Команда отправлена: регистр 0x{REG_STATUS:02X}, ответ 0x{value:04X}")
             return
 
         self.controller.write_register(REG_COMMAND, CMD_OPEN)
+        self.append_command_log(f"Команда отправлена: регистр 0x{REG_COMMAND:02X}, значение  0x{CMD_OPEN:04X}")
         # Запускаем проверку каждые 1000 мс до наступления нужного статуса
         self.window.after(1000, self._check_and_set_middle)
 
@@ -486,7 +495,9 @@ class DeviceGUI:
         """Проверяет, установлен ли нужный статус, и отправляет команду установки среднего положения"""
         status = self.controller.read_register(REG_STATUS)
         if status is not None and (status & 0x02):
+            self.append_command_log(f"Команда отправлена: регистр 0x{REG_STATUS:02X}, ответ 0x{status:04X}")
             self.controller.write_register(REG_COMMAND, CMD_MIDDLE_POSITION)
+            self.append_command_log(f"Команда отправлена: регистр 0x{REG_COMMAND:02X}, значение  0x{CMD_MIDDLE_POSITION:04X}")
         else:
             # Если условие не выполнено, проверяем снова через 1000 мс
             self.window.after(1000, self._check_and_set_middle)
@@ -510,7 +521,7 @@ class DeviceGUI:
             self.logger.add_data(current_time, temp, pressure, position, status)
 
         except Exception as e:
-            print(f"Ошибка при логировании данных: {e}")
+            self.append_command_log(f"Ошибка при логировании данных: {e}")
 
     def _start_log(self, is_on):
         self.log_enable.set(is_on)
@@ -527,10 +538,10 @@ class DeviceGUI:
             address, value = self.controller.position_queue.get()
             if address == REG_POSITION_LO:
                 position_lo = value
-                print(f'pos_lo: {position_lo}')
+                self.append_command_log(f'pos_lo: {position_lo}')
             elif address == REG_POSITION_HI:
                 position_hi = value
-                print(f'pos_hi: {position_hi}')
+                self.append_command_log(f'pos_hi: {position_hi}')
             position = (position_hi << 16) | position_lo
             status = self.controller.read_register(REG_STATUS)
 
@@ -555,9 +566,16 @@ class DeviceGUI:
                 for measurement in measurements:
                     self.logger.add_data(*measurement)
                 self.logger.flush()  # Принудительно сохраняем
-                print(f"Успешно сохранено {len(measurements)} измерений")
+                self.append_command_log(f"Успешно сохранено {len(measurements)} измерений")
             except Exception as e:
-                print(f"Ошибка при сохранении измерений: {e}")
+                self.append_command_log(f"Ошибка при сохранении измерений: {e}")
+
+    def append_command_log(self, message: str):
+        """Добавляет строку в окно вывода команд"""
+        self.command_output.configure(state='normal')
+        self.command_output.insert('end', message + '\n')
+        self.command_output.see('end')  # автопрокрутка
+        self.command_output.configure(state='disabled')
 
     def on_close(self):
         """Обработчик закрытия окна"""
