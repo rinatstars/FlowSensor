@@ -2,10 +2,8 @@
 """Модуль для логирования данных в Excel"""
 
 import pandas as pd
-from openpyxl import load_workbook
 from pathlib import Path
 import logging
-from datetime import datetime
 import time
 import os
 
@@ -20,6 +18,7 @@ class DataLogger:
         self.last_log_time = time.time()
         self.log_data = []
         self._init_logging()
+        self.batch_mode = False  # Режим пакетного добавления
 
     def _init_logging(self):
         """Инициализация системы логирования"""
@@ -37,6 +36,11 @@ class DataLogger:
                 "Status"
             ])
             df.to_excel(self.log_file, index=False, engine='openpyxl')
+
+    def start_batch(self):
+        """Начинает пакетное добавление данных"""
+        self.batch_mode = True
+        self.batch_data = []
 
     def add_data(self, timestamp, temperature, pressure, position, status):
         """
