@@ -47,10 +47,10 @@ class DeviceController:
                 try:
                     self._close_socket()
                     self.sock = self._create_socket()
-                    print("Успешное подключение")
+                    print("Успешное подключение сокета TCP")
                     return True
                 except Exception as e:
-                    print(f"Попытка {attempt + 1}/{self.reconnect_attempts}: {e}")
+                    print(f"Попытка подключения сокета {attempt + 1}/{self.reconnect_attempts}: {e}")
                     time.sleep(self.reconnect_delay)
             return False
 
@@ -132,12 +132,12 @@ class DeviceController:
                 response = self.sock.recv(5)
 
                 if not response:
-                    raise socket.timeout("Пустой ответ")
+                    raise socket.timeout("Пустой ответ от устройства")
 
                 return self._parse_response(response, address)
 
             except (socket.timeout, socket.error, ConnectionError) as e:
-                print(f"Ошибка связи (попытка {attempt + 1}): {e}")
+                print(f"Ошибка связи сокета (попытка {attempt + 1}): {e}")
                 self.sock = None
                 if not self._reconnect():
                     continue
@@ -165,7 +165,7 @@ class DeviceController:
                 return self._parse_response(response, address) is not None
 
             except (socket.timeout, socket.error, ConnectionError) as e:
-                print(f"Ошибка связи (попытка {attempt + 1}): {e}")
+                print(f"Ошибка связи сокета (попытка {attempt + 1}): {e}")
                 self.sock = None
                 if not self._reconnect():
                     continue
@@ -206,45 +206,6 @@ class DeviceController:
 
         if one_poll:
             polling_loop(one_poll=True)
-        if self.running:
-            return
-
-        if not one_poll:
-            self.running = True
-
-
-    def start_polling(self, one_poll=False):
-        def polling_loop(one_poll=False):
-            polling_config = [
-                (REG_STATUS, self.status_queue),
-                (REG_MEASURED_PRESSURE, self.measured_pressure_queue),
-                (REG_TEMPERATURE, self.temperature_queue),
-                (REG_POSITION_LO, self.position_queue_LO),
-                (REG_POSITION_HI, self.position_queue_HI),
-            ]
-
-            def poll():
-                try:
-                    for addr, queue in polling_config:
-                        value = self.read_register(addr)
-                        if queue.full():
-                            queue.get()
-                        if value is not None:
-                            queue.put((addr, value))
-                        time.sleep(0.05)
-                except Exception as e:
-                    print(f"[polling_loop] Ошибка в цикле: {e}")
-
-            if one_poll:
-                poll()
-                return
-
-            while self.running:
-                poll()
-
-        if one_poll:
-            polling_loop(one_poll=True)
-        print(f'self.running = {self.running}')
         if self.running:
             return
 

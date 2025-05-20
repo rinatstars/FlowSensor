@@ -13,7 +13,7 @@ from logger import DataLogger  # Добавляем импорт
 from constants import (
     REG_STATUS, REG_TEMPERATURE, REG_MEASURED_PRESSURE,
     REG_POSITION_LO, REG_POSITION_HI, REG_COMMAND, REG_SET_PRESSURE, REG_SET_POSITION,
-    CMD_START, CMD_STOP, CMD_SAVE_FLASH, CMD_OPEN, CMD_CLOSE, CMD_MIDDLE_POSITION
+    CMD_START, CMD_STOP, CMD_SAVE_FLASH, CMD_OPEN, CMD_CLOSE, CMD_MIDDLE_POSITION, CMD_POSITION
 )
 
 matplotlib.rcParams['path.simplify'] = True
@@ -38,7 +38,7 @@ class DeviceGUI:
     def _setup_window(self):
         """Настройка основного окна"""
         self.window.title("Управление устройством")
-        self.window.geometry("1200x700")
+        self.window.geometry("1200x750")
         self.window.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def _init_variables(self):
@@ -326,7 +326,7 @@ class DeviceGUI:
         frame.pack(fill='x', pady=5)
         ttk.Label(frame, textvariable=self.position_text_var).grid(row=0, column=0, padx=5, sticky='w')
         ttk.Label(frame, textvariable=self.position_text_var_set).grid(row=0, column=1, padx=5, sticky='w')
-        ttk.Scale(frame, variable=self.position_var_set, from_=0, to=4294967295, length=300, command=self._set_position_var).grid(
+        ttk.Scale(frame, variable=self.position_var_set, from_=0, to=4095, length=300, command=self._set_position_var).grid( # 4294967295
             row=1, column=0, columnspan=2, padx=5, sticky='w'
         )
         ttk.Button(frame, text="Применить", command=self._set_position).grid(
@@ -376,6 +376,9 @@ class DeviceGUI:
             row=1, column=1, padx=5, pady=2)
         ttk.Button(frame, text="СРЕДНЕЕ", command=self._set_middle_position).grid(
             row=1, column=2, padx=5, pady=2)
+
+        ttk.Button(frame, text="ПОЗИЦИЯ", command=lambda: self._send_command(REG_COMMAND, CMD_POSITION)).grid(
+            row=2, column=0, padx=5, pady=2)
 
         for i in range(3):
             frame.grid_columnconfigure(i, weight=1)
