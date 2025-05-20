@@ -2,9 +2,10 @@
 
 import time
 import json
+import sys
 from pathlib import Path
 from device_controller import DeviceController
-from gui import DeviceGUI
+from gui import DeviceGUI, GuiOutputRedirector
 
 
 def load_config(config_path="config.json"):
@@ -31,6 +32,11 @@ def main():
     for attempt in range(1, max_attempts + 1):
         if controller.connect():
             app = DeviceGUI(controller)
+
+            # Перенаправляем stdout/stderr в GUI
+            sys.stdout = GuiOutputRedirector(app)
+            sys.stderr = GuiOutputRedirector(app)
+
             controller.start_polling()
             app.run()
             break

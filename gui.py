@@ -427,13 +427,11 @@ class DeviceGUI:
         """Проверяет соединение с устройством"""
         if not self.controller._ensure_connection():
             self.append_command_log("Предупреждение: проблемы с соединением")
-            print("Предупреждение: проблемы с соединением")
 
     def _send_command(self, register, value):
         """Отправляет команду устройству"""
         if self.controller.write_register(register, value):
             self.append_command_log(f"Команда отправлена: регистр 0x{register:02X}, значение 0x{value:04X}")
-            print(f"Команда отправлена: регистр 0x{register:02X}, значение 0x{value:04X}")
 
     def _set_pressure(self):
         """Устанавливает давление"""
@@ -525,21 +523,28 @@ class DeviceGUI:
 
     def _start_log(self, is_on):
         self.log_enable.set(is_on)
+        if is_on:
+            print(f"Логирование запущено")
+        else:
+            print(f"Логирование остановлено")
 
     def _rec_to_log(self, n):
         """Выполняет n измерений и сохраняет их в лог"""
         start_measurement_time = time.time()
         measurements = []
 
+        print(f"Старт {n} измерений")
         while len(measurements) < n and time.time() - start_measurement_time < 60:
+            print(f"{len(measurements)} измерение")
             # Получаем текущие значения
             temp = self.controller.read_register(REG_TEMPERATURE)
             pressure = self.controller.read_register(REG_MEASURED_PRESSURE)
-            address, value = self.controller.position_queue.get()
+            address, value = self.controller.position_queue_LO.get()
             if address == REG_POSITION_LO:
                 position_lo = value
                 self.append_command_log(f'pos_lo: {position_lo}')
-            elif address == REG_POSITION_HI:
+            address, value = self.controller.position_queue_HI.get()
+            if address == REG_POSITION_HI:
                 position_hi = value
                 self.append_command_log(f'pos_hi: {position_hi}')
             position = (position_hi << 16) | position_lo
@@ -572,10 +577,14 @@ class DeviceGUI:
 
     def append_command_log(self, message: str):
         """Добавляет строку в окно вывода команд"""
-        self.command_output.configure(state='normal')
-        self.command_output.insert('end', message + '\n')
-        self.command_output.see('end')  # автопрокрутка
-        self.command_output.configure(state='disabled')
+
+        def _append():
+            self.command_output.configure(state='normal')
+            self.command_output.insert('end', message + '\n')
+            self.command_output.see('end')
+            self.command_output.configure(state='disabled')
+
+        self.command_output.after(0, _append)
 
     def on_close(self):
         """Обработчик закрытия окна"""
@@ -586,3 +595,15 @@ class DeviceGUI:
     def run(self):
         """Запускает главный цикл приложения"""
         self.window.mainloop()
+
+class GuiOutputRedirector:
+    def __init__(self, gui_instance):
+        self.gui = gui_instance
+
+    def write(self, message):
+        # Убираем пустые строки и перевод строки
+        if message.strip():
+            self.gui.append_command_log(message.strip())
+
+    def flush(self):
+        pass  # требуется для совместимости с sys.stdout

@@ -206,7 +206,6 @@ class DeviceController:
 
         if one_poll:
             polling_loop(one_poll=True)
-        print(f'self.running = {self.running}')
         if self.running:
             return
 
