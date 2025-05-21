@@ -3,7 +3,7 @@
 import time
 import matplotlib
 from datetime import datetime
-from tkinter import Tk, BooleanVar, StringVar, IntVar, Frame
+from tkinter import Tk, BooleanVar, StringVar, IntVar, Menu
 from tkinter import ttk
 from tkinter import scrolledtext
 from matplotlib.figure import Figure
@@ -25,15 +25,14 @@ class DeviceGUI:
     """Класс графического интерфейса для управления устройством"""
 
     def __init__(self, controller):
-        self.start_time = time.time()
         self.controller = controller
         self.window = Tk()
         self._setup_window()
         self._init_variables()
-        #self._init_graphs()
         self._setup_ui()
         self._start_background_tasks()
         self.logger = DataLogger(log_interval=60)  # Создаем экземпляр логгера
+        self.controller.init_func_time_culc(self._update_interval_upd_data)
 
     def _setup_window(self):
         """Настройка основного окна"""
@@ -70,6 +69,8 @@ class DeviceGUI:
         self.calc_speed = False
         self.text_press = "Давление"
         self.log_enable = BooleanVar(value=False)
+        self.interval_polling = StringVar(value="Обновление окна: ---мс")
+        self.interval_upd_data = StringVar(value="Обновление данных: ---мс")
 
     def _init_graphs(self, frame):
         # Данные для графиков
@@ -141,11 +142,16 @@ class DeviceGUI:
 
         # Графики
         self._create_graphs_frame(right_frame)
+        self._create_ping_frame(right_frame)
 
         # Элемент вывода команд (правая колонка)
-        self.command_output = scrolledtext.ScrolledText(output_frame, width=40, height=30, state='disabled',
-                                                        wrap='word')
+        self.command_output = scrolledtext.ScrolledText(output_frame, width=40, height=30,
+                                                        state='normal', wrap='word')
         self.command_output.pack(fill='both', expand=True)
+        # Запрет ввода вручную
+        self.command_output.bind("<Key>", lambda e: "break")
+        # Добавляем контекстное меню
+        self._add_context_menu(self.command_output)
 
     def _create_graphs_frame(self, parent):
         """Создает фрейм с графиками"""
@@ -155,7 +161,6 @@ class DeviceGUI:
         # Убедимся, что фигура уже создана
         if not hasattr(self, 'canvas'):
             self._init_graphs(frame)
-
 
         # Размещаем canvas так, чтобы он занимал всё пространство фрейма
         self.canvas.get_tk_widget().pack(fill='both', expand=True)
@@ -297,6 +302,16 @@ class DeviceGUI:
             self.receive_new_temperature_data = False
             self.receive_new_pressure_data = False
 
+    def _update_interval_upd_data(self, interval):
+        self.interval_upd_data.set(f"Обновление данных: {interval}мс")
+
+    def _create_ping_frame(self, parent):
+        frame = ttk.LabelFrame(parent, text="Связь", padding="5")
+        frame.pack(fill='x', pady=5)
+
+        ttk.Label(frame, textvariable=self.interval_polling).grid(row=0, column=0, padx=5, sticky='w')
+        ttk.Label(frame, textvariable=self.interval_upd_data).grid(row=0, column=1, padx=5, sticky='w')
+
     def _create_status_frame(self, parent):
         """Создает фрейм статуса"""
         frame = ttk.LabelFrame(parent, text="Статус", padding="5")
@@ -422,6 +437,7 @@ class DeviceGUI:
         # Динамически регулируем интервал
         processing_time = time.time() - start_time
         next_interval = max(2, int(processing_time * 1000 * 1.1))  # +10% к времени обработки
+        self.interval_polling.set(f"Обновление окна: {int(next_interval)}мс")
 
         if self.window.winfo_exists():
             self.window.after(next_interval, self._start_background_tasks)
@@ -484,8 +500,10 @@ class DeviceGUI:
         """Устанавливает среднее положение заслонки без блокировки главного цикла"""
         value = self.controller.read_register(REG_STATUS)
         if value is None:
-            self.append_command_log(f"Команда отправлена: регистр 0x{REG_STATUS:02X}, ответ 0x{value:04X}")
+            self.append_command_log(f"Команда отправлена: регистр 0x{REG_STATUS:02X}, ответа НЕТ")
             return
+        else:
+            self.append_command_log(f"Команда отправлена: регистр 0x{REG_STATUS:02X}, ответ 0x{value:04X}")
 
         self.controller.write_register(REG_COMMAND, CMD_OPEN)
         self.append_command_log(f"Команда отправлена: регистр 0x{REG_COMMAND:02X}, значение  0x{CMD_OPEN:04X}")
@@ -495,8 +513,12 @@ class DeviceGUI:
     def _check_and_set_middle(self):
         """Проверяет, установлен ли нужный статус, и отправляет команду установки среднего положения"""
         status = self.controller.read_register(REG_STATUS)
+        self.append_command_log(
+            f"Команда отправлена: регистр 0x{REG_STATUS:02X}, "
+            f"ответ 0x{status:04X}" if status is not None else
+            f"Команда отправлена: регистр 0x{REG_STATUS:02X}, ответ None"
+        )
         if status is not None and (status & 0x02):
-            self.append_command_log(f"Команда отправлена: регистр 0x{REG_STATUS:02X}, ответ 0x{status:04X}")
             self.controller.write_register(REG_COMMAND, CMD_MIDDLE_POSITION)
             self.append_command_log(f"Команда отправлена: регистр 0x{REG_COMMAND:02X}, значение  0x{CMD_MIDDLE_POSITION:04X}")
         else:
@@ -582,12 +604,23 @@ class DeviceGUI:
         """Добавляет строку в окно вывода команд"""
 
         def _append():
-            self.command_output.configure(state='normal')
             self.command_output.insert('end', message + '\n')
             self.command_output.see('end')
-            self.command_output.configure(state='disabled')
 
         self.command_output.after(0, _append)
+
+    def _add_context_menu(self, widget):
+        """Добавляет контекстное меню с возможностью копирования"""
+        menu = Menu(widget, tearoff=0)
+        menu.add_command(label="Копировать", command=lambda: widget.event_generate("<<Copy>>"))
+
+        def show_menu(event):
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+
+        widget.bind("<Button-3>", show_menu)  # ПКМ для Windows и Linux
 
     def on_close(self):
         """Обработчик закрытия окна"""

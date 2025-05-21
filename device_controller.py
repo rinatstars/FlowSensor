@@ -31,6 +31,8 @@ class DeviceController:
         self.read_timeout = READ_TIMEOUT
         self.write_timeout = WRITE_TIMEOUT
         self.t = threading.Thread()
+        self.start_polling_time = time.time()
+        self.func_calc_time = None
 
     def _init_queues(self):
         """Инициализация очередей для данных"""
@@ -203,10 +205,15 @@ class DeviceController:
 
             while self.running:
                 poll()
+                period = int((time.time() - self.start_polling_time) * 1000)
+                self.start_polling_time = time.time()
+                if self.func_calc_time is not None:
+                    self.func_calc_time(period)
 
         if one_poll:
             polling_loop(one_poll=True)
         if self.running:
+            self.start_polling_time = time.time()
             return
 
         if not one_poll:
@@ -218,6 +225,9 @@ class DeviceController:
     def stop_polling(self):
         """Останавливает опрос данных"""
         self.running = False
+
+    def init_func_time_culc(self, func):
+        self.func_calc_time = func
 
     def disconnect(self):
         """Закрывает соединение"""
