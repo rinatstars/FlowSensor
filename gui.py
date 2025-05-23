@@ -13,7 +13,8 @@ from logger import DataLogger  # Добавляем импорт
 from constants import (
     REG_STATUS, REG_TEMPERATURE, REG_MEASURED_PRESSURE,
     REG_POSITION_LO, REG_POSITION_HI, REG_COMMAND, REG_SET_PRESSURE, REG_SET_POSITION,
-    CMD_START, CMD_STOP, CMD_SAVE_FLASH, CMD_OPEN, CMD_CLOSE, CMD_MIDDLE_POSITION, CMD_POSITION
+    CMD_START, CMD_STOP, CMD_SAVE_FLASH, CMD_OPEN, CMD_CLOSE, CMD_MIDDLE_POSITION, CMD_POSITION,
+    CMD_SOUND
 )
 
 matplotlib.rcParams['path.simplify'] = True
@@ -58,9 +59,9 @@ class DeviceGUI:
         self.set_pressure_var = StringVar(value="0")
         self.temperature_var = StringVar(value="--- °C")
         self.position_var = IntVar(value=0)
-        self.position_var_set = IntVar(value=0)
+        self.position_var_set = IntVar(value=100)
         self.position_text_var = StringVar(value="Позиция изм.: 0")
-        self.position_text_var_set = StringVar(value="Позиция уст.: 0")
+        self.position_text_var_set = StringVar(value="Позиция уст.: 100")
         self.receive_new_temperature_data = False
         self.receive_new_pressure_data = False
         self.receive_new_position_data = False
@@ -77,18 +78,21 @@ class DeviceGUI:
         self.max_points = 100  # Фиксированное количество точек
         self.temp_data = {'time': deque(maxlen=self.max_points), 'value': deque(maxlen=self.max_points)}
         self.pressure_data = {'time': deque(maxlen=self.max_points), 'value': deque(maxlen=self.max_points)}
+        self.position_data = {'time': deque(maxlen=self.max_points), 'value': deque(maxlen=self.max_points)}
 
         # Настройка фигуры
         self.fig = Figure(figsize=(6, 5), dpi=80)
         self.fig.set_tight_layout(True)
 
         # Настройка осей
-        self.ax1 = self.fig.add_subplot(211)
-        self.ax2 = self.fig.add_subplot(212)
+        self.ax1 = self.fig.add_subplot(311)
+        self.ax2 = self.fig.add_subplot(312)
+        self.ax3 = self.fig.add_subplot(313)
 
         # Инициализация линий графиков
         self.temp_line, = self.ax1.plot([], [], 'r-', label='Температура')
         self.pressure_line, = self.ax2.plot([], [], 'b-', label='Давление')
+        self.position_line, = self.ax3.plot([], [], 'g-', label='Позиция')
 
         # Настройка осей
         self.ax1.set_title('Температура (°C)')
@@ -99,6 +103,10 @@ class DeviceGUI:
         self.ax2.set_xlim(0, self.max_points - 1)
         self.ax2.grid(True)
         self.ax2.legend(loc='upper right')
+        self.ax3.set_title('Позиция')
+        self.ax3.set_xlim(0, self.max_points - 1)
+        self.ax3.grid(True)
+        self.ax3.legend(loc='upper right')
 
         # Инициализация canvas
         self.canvas = FigureCanvasTkAgg(self.fig, master=frame)
@@ -107,6 +115,7 @@ class DeviceGUI:
         # Фон для blitting нужно сохранять после первого отображения
         self.ax1_background = None
         self.ax2_background = None
+        self.ax3_background = None
 
     def _setup_ui(self):
         """Создание элементов интерфейса"""
@@ -195,7 +204,10 @@ class DeviceGUI:
         if position_lo is not None and position_hi is not None:
             position = (position_hi << 16) | position_lo
             self.position_var.set(position)
+            self.position_data['value'].append(position)
             self.position_text_var.set(f"Позиция изм.: {position}")
+
+            self.receive_new_position_data = True
             #print(f'pos_lo: {position_lo}, pos_hi: {position_hi}, pos: {position}')
 
     def _update_temperature(self):
@@ -275,13 +287,27 @@ class DeviceGUI:
                 else:
                     redraw_full = False
 
+            if self.receive_new_position_data and len(self.position_data['value']) > 0:
+                self.position_line.set_data(range(len(self.position_data['value'])), self.position_data['value'])
+                old_ylim = self.ax3.get_ylim()
+                self.ax3.relim()
+                self.ax3.autoscale_view(scalex=False, scaley=True)
+                new_ylim = self.ax3.get_ylim()
+                # Проверяем: изменились ли границы Y
+                if old_ylim != new_ylim:
+                    redraw_full = True
+                else:
+                    redraw_full = False
+
             # Первая отрисовка - сохраняем фон
             if self.ax1_background is None or redraw_full:
                 self.temp_line.set_animated(True)
                 self.pressure_line.set_animated(True)
+                self.position_line.set_animated(True)
                 self.fig.canvas.draw()
                 self.ax1_background = self.canvas.copy_from_bbox(self.ax1.bbox)
                 self.ax2_background = self.canvas.copy_from_bbox(self.ax2.bbox)
+                self.ax3_background = self.canvas.copy_from_bbox(self.ax3.bbox)
 
 
             # Последующие обновления с blitting
@@ -289,10 +315,13 @@ class DeviceGUI:
             self.ax1.draw_artist(self.temp_line)
             self.canvas.restore_region(self.ax2_background)
             self.ax2.draw_artist(self.pressure_line)
+            self.canvas.restore_region(self.ax3_background)
+            self.ax3.draw_artist(self.position_line)
 
             # Обновляем только измененные области
             self.canvas.blit(self.ax1.bbox)
             self.canvas.blit(self.ax2.bbox)
+            self.canvas.blit(self.ax3.bbox)
 
         except Exception as e:
             self.append_command_log(f"Ошибка обновления графиков: {e}")
@@ -301,6 +330,7 @@ class DeviceGUI:
         finally:
             self.receive_new_temperature_data = False
             self.receive_new_pressure_data = False
+            self.receive_new_position_data = False
 
     def _update_interval_upd_data(self, interval):
         self.interval_upd_data.set(f"Обновление данных: {interval}мс")
@@ -341,7 +371,7 @@ class DeviceGUI:
         frame.pack(fill='x', pady=5)
         ttk.Label(frame, textvariable=self.position_text_var).grid(row=0, column=0, padx=5, sticky='w')
         ttk.Label(frame, textvariable=self.position_text_var_set).grid(row=0, column=1, padx=5, sticky='w')
-        ttk.Scale(frame, variable=self.position_var_set, from_=0, to=4095, length=300, command=self._set_position_var).grid( # 4294967295
+        ttk.Scale(frame, variable=self.position_var_set, from_=99, to=1000, length=300, command=self._set_position_var).grid( # 4294967295
             row=1, column=0, columnspan=2, padx=5, sticky='w'
         )
         ttk.Button(frame, text="Применить", command=self._set_position).grid(
@@ -394,6 +424,9 @@ class DeviceGUI:
 
         ttk.Button(frame, text="ПОЗИЦИЯ", command=lambda: self._send_command(REG_COMMAND, CMD_POSITION)).grid(
             row=2, column=0, padx=5, pady=2)
+
+        ttk.Button(frame, text="ЗВУК", command=lambda: self._send_command(REG_COMMAND, CMD_SOUND)).grid(
+            row=2, column=1, padx=5, pady=2)
 
         for i in range(3):
             frame.grid_columnconfigure(i, weight=1)
